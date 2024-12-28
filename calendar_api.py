@@ -1,0 +1,103 @@
+from flask import Flask, jsonify
+from caldav import DAVClient
+from datetime import datetime, timedelta
+
+app = Flask(__name__)
+
+# CalDAV configuration
+USERNAME = "john.doe@imt-atlantique.net"  # Replace with your username
+PASSWORD = "P@ssw0rd1234"  # Replace with your password
+CALDAV_URL = (
+    f"https://z.imt.fr/dav/{USERNAME}/Calendar"  # Replace with your CalDAV server URL
+)
+
+# Define working hours
+WORKDAY_START = 9  # 9 AM
+WORKDAY_END = 17  # 5 PM
+
+
+# Function to fetch available 30-minute and 1-hour slots
+def get_availabilities():
+    client = DAVClient(CALDAV_URL, username=USERNAME, password=PASSWORD)
+    principal = client.principal()
+    calendars = principal.calendars()
+    if not calendars:
+        return []
+
+    # Get the primary calendar
+    calendar = calendars[0]
+    now = datetime.now()
+    end = now + timedelta(days=7)  # Timeframe: Next 7 days
+
+    events = calendar.date_search(start=now, end=end)
+    available_slots = []
+    current_day = now.date()
+
+    while current_day <= end.date():
+        day_start = datetime.combine(current_day, datetime.min.time()) + timedelta(
+            hours=WORKDAY_START
+        )
+        day_end = datetime.combine(current_day, datetime.min.time()) + timedelta(
+            hours=WORKDAY_END
+        )
+
+        # Generate all possible slots within work hours
+        slot_start = day_start
+        while slot_start + timedelta(minutes=30) <= day_end:
+            # Generate 30-minute slot
+            slot_30_end = slot_start + timedelta(minutes=30)
+            # Generate 1-hour slot
+            slot_60_end = slot_start + timedelta(minutes=60)
+
+            # Check if the 30-minute slot is free
+            if is_slot_free(slot_start, slot_30_end, events):
+                available_slots.append(
+                    {
+                        "start": slot_start.isoformat(),
+                        "end": slot_30_end.isoformat(),
+                        "duration": "30 minutes",
+                    }
+                )
+
+            # Check if the 1-hour slot is free and within the day bounds
+            if slot_60_end <= day_end and is_slot_free(slot_start, slot_60_end, events):
+                available_slots.append(
+                    {
+                        "start": slot_start.isoformat(),
+                        "end": slot_60_end.isoformat(),
+                        "duration": "1 hour",
+                    }
+                )
+
+            slot_start += timedelta(minutes=30)  # Move to the next 30-minute interval
+
+        current_day += timedelta(days=1)
+
+    return available_slots
+
+
+# Helper function to check if a slot is free
+def is_slot_free(slot_start, slot_end, events):
+    for event in events:
+        event_start = event.vobject_instance.vevent.dtstart.value
+        event_end = event.vobject_instance.vevent.dtend.value
+
+        # Ensure datetime comparison
+        if isinstance(event_start, datetime) and isinstance(event_end, datetime):
+            if not (slot_end <= event_start or slot_start >= event_end):
+                return False
+    return True
+
+
+# API endpoint
+@app.route("/availabilities", methods=["GET"])
+def availabilities():
+    try:
+        data = get_availabilities()
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
