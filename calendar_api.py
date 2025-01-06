@@ -1,6 +1,6 @@
 from flask import Flask, jsonify
 from caldav import DAVClient
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
 
@@ -26,18 +26,22 @@ def get_availabilities():
 
     # Get the primary calendar
     calendar = calendars[0]
-    now = datetime.now()
-    end = now + timedelta(days=7)  # Timeframe: Next 7 days
 
-    events = calendar.date_search(start=now, end=end)
+    # Set the start time to midnight of the next day
+    now = datetime.now(timezone.utc)
+    start_time = datetime.combine(now, datetime.min.time(), tzinfo=timezone.utc)
+    end_time = start_time + timedelta(days=7)  # Timeframe: Next 7 days
+
+    # Fetch events in the specified timeframe
+    events = calendar.date_search(start=start_time, end=end_time)
     available_slots = []
-    current_day = now.date()
+    current_day = start_time.date()
 
-    while current_day <= end.date():
-        day_start = datetime.combine(current_day, datetime.min.time()) + timedelta(
+    while current_day <= end_time.date():
+        day_start = datetime.combine(current_day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(
             hours=WORKDAY_START
         )
-        day_end = datetime.combine(current_day, datetime.min.time()) + timedelta(
+        day_end = datetime.combine(current_day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(
             hours=WORKDAY_END
         )
 
@@ -75,19 +79,22 @@ def get_availabilities():
 
     return available_slots
 
-
 # Helper function to check if a slot is free
 def is_slot_free(slot_start, slot_end, events):
     for event in events:
         event_start = event.vobject_instance.vevent.dtstart.value
         event_end = event.vobject_instance.vevent.dtend.value
 
-        # Ensure datetime comparison
-        if isinstance(event_start, datetime) and isinstance(event_end, datetime):
-            if not (slot_end <= event_start or slot_start >= event_end):
-                return False
-    return True
+        # Convert event_start and event_end to timezone-aware datetimes if needed
+        if isinstance(event_start, datetime) and event_start.tzinfo is None:
+            event_start = event_start.replace(tzinfo=timezone.utc)
+        if isinstance(event_end, datetime) and event_end.tzinfo is None:
+            event_end = event_end.replace(tzinfo=timezone.utc)
 
+        # Ensure datetime comparison
+        if not (slot_end <= event_start or slot_start >= event_end):
+            return False
+    return True
 
 # API endpoint
 @app.route("/availabilities", methods=["GET"])
