@@ -1,12 +1,12 @@
-from flask import Flask, jsonify
+from flask import Flask, jsonify , request
 from caldav import DAVClient
 from datetime import datetime, timedelta, timezone
 
 app = Flask(__name__)
 
 # CalDAV configuration
-USERNAME = "john.doe@imt-atlantique.net"  # Replace with your username
-PASSWORD = "P@ssw0rd1234"  # Replace with your password
+USERNAME = "..........@imt-atlantique.net"  # Replace with your username
+PASSWORD = ".........."  # Replace with your password
 CALDAV_URL = (
     f"https://z.imt.fr/dav/{USERNAME}/Calendar"  # Replace with your CalDAV server URL
 )
@@ -17,7 +17,7 @@ WORKDAY_END = 17  # 5 PM
 
 
 # Function to fetch available 30-minute and 1-hour slots
-def get_availabilities():
+def get_availabilities(duration,start_time, end_time):
     client = DAVClient(CALDAV_URL, username=USERNAME, password=PASSWORD)
     principal = client.principal()
     calendars = principal.calendars()
@@ -28,9 +28,9 @@ def get_availabilities():
     calendar = calendars[0]
 
     # Set the start time to midnight of the next day
-    now = datetime.now(timezone.utc)
-    start_time = datetime.combine(now, datetime.min.time(), tzinfo=timezone.utc)
-    end_time = start_time + timedelta(days=7)  # Timeframe: Next 7 days
+    
+   # start_time = datetime.combine(now, datetime.min.time(), tzinfo=timezone.utc)
+    # end_time = start_time + timedelta(days=7)  # Timeframe: Next 7 days
 
     # Fetch events in the specified timeframe
     events = calendar.date_search(start=start_time, end=end_time)
@@ -54,7 +54,7 @@ def get_availabilities():
             slot_60_end = slot_start + timedelta(minutes=60)
 
             # Check if the 30-minute slot is free
-            if is_slot_free(slot_start, slot_30_end, events):
+            if duration == "30m" and is_slot_free(slot_start, slot_30_end, events):
                 available_slots.append(
                     {
                         "start": slot_start.isoformat(),
@@ -62,9 +62,8 @@ def get_availabilities():
                         "duration": "30 minutes",
                     }
                 )
-
             # Check if the 1-hour slot is free and within the day bounds
-            if slot_60_end <= day_end and is_slot_free(slot_start, slot_60_end, events):
+            if duration == "60m" and slot_60_end <= day_end and is_slot_free(slot_start, slot_60_end, events):
                 available_slots.append(
                     {
                         "start": slot_start.isoformat(),
@@ -72,6 +71,7 @@ def get_availabilities():
                         "duration": "1 hour",
                     }
                 )
+           
 
             slot_start += timedelta(minutes=30)  # Move to the next 30-minute interval
 
@@ -84,7 +84,7 @@ def is_slot_free(slot_start, slot_end, events):
     for event in events:
         event_start = event.vobject_instance.vevent.dtstart.value
         event_end = event.vobject_instance.vevent.dtend.value
-
+       
         # Convert event_start and event_end to timezone-aware datetimes if needed
         if isinstance(event_start, datetime) and event_start.tzinfo is None:
             event_start = event_start.replace(tzinfo=timezone.utc)
@@ -97,14 +97,36 @@ def is_slot_free(slot_start, slot_end, events):
     return True
 
 # API endpoint
-@app.route("/availabilities", methods=["GET"])
-def availabilities():
+@app.route("/availabilities", methods=["GET"]) 
+def Availabilities():
     try:
-        data = get_availabilities()
+        now = datetime.now(timezone.utc)
+        start_time = datetime.combine(now, datetime.min.time(), tzinfo=timezone.utc)
+        end_time = start_time + timedelta(days=7)  # Timeframe: Next 7 days
+        duration = request.args.get('duration', default='30m')
+        data = get_availabilities(duration, start_time, end_time)
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route("/dailyavailabilities", methods=["GET"]) 
+def DailyAvailabilities():
+    try:
+        now = datetime.now(timezone.utc)
+        start = request.args.get('date', default='2023-10-01')
+        try:
+        # Convertir 'start' en un objet datetime avec un fuseau horaire UTC
+            start_time = datetime.strptime(start, '%Y-%m-%d').replace(tzinfo=timezone.utc)
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
+
+        end_time = start_time
+        duration = request.args.get('duration', default='30m')
+        data = get_availabilities(duration, start_time, end_time)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
     app.run(debug=True)
