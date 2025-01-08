@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 app = Flask(__name__)
 
 # CalDAV configuration
-USERNAME = "riadh.ben-mustapha@imt-atlantique.net"  # Replace with your username
-PASSWORD = "123456789Aze.."  # Replace with your password
+USERNAME = ".......@imt-atlantique.net"  # Replace with your username
+PASSWORD = "........."  # Replace with your password
 CALDAV_URL = (
     f"https://z.imt.fr/dav/{USERNAME}/Calendar"  # Replace with your CalDAV server URL
 )
