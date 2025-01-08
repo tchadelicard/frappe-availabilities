@@ -5,8 +5,8 @@ from datetime import datetime, timedelta, timezone
 app = Flask(__name__)
 
 # CalDAV configuration
-USERNAME = "..........@imt-atlantique.net"  # Replace with your username
-PASSWORD = ".........."  # Replace with your password
+USERNAME = "riadh.ben-mustapha@imt-atlantique.net"  # Replace with your username
+PASSWORD = "123456789Aze.."  # Replace with your password
 CALDAV_URL = (
     f"https://z.imt.fr/dav/{USERNAME}/Calendar"  # Replace with your CalDAV server URL
 )
@@ -79,6 +79,71 @@ def get_availabilities(duration,start_time, end_time):
 
     return available_slots
 
+def get_availabilities_date(duration,start_time, end_time):
+    client = DAVClient(CALDAV_URL, username=USERNAME, password=PASSWORD)
+    principal = client.principal()
+    calendars = principal.calendars()
+    if not calendars:
+        return []
+
+    # Get the primary calendar
+    calendar = calendars[0]
+
+    # Set the start time to midnight of the next day
+    
+   # start_time = datetime.combine(now, datetime.min.time(), tzinfo=timezone.utc)
+    # end_time = start_time + timedelta(days=7)  # Timeframe: Next 7 days
+
+    # Fetch events in the specified timeframe
+    events = calendar.date_search(start=start_time, end=end_time)
+    available_slots = []
+    current_day = start_time.date()
+
+    while current_day <= end_time.date():
+        day_start = datetime.combine(current_day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(
+            hours=WORKDAY_START
+        )
+        day_end = datetime.combine(current_day, datetime.min.time(), tzinfo=timezone.utc) + timedelta(
+            hours=WORKDAY_END
+        )
+
+        # Generate all possible slots within work hours
+        slot_start = day_start
+        while slot_start + timedelta(minutes=30) <= day_end:
+            # Generate 30-minute slot
+            slot_30_end = slot_start + timedelta(minutes=30)
+            # Generate 1-hour slot
+            slot_60_end = slot_start + timedelta(minutes=60)
+
+            # Check if the 30-minute slot is free
+            if duration == "30m" and is_slot_free(slot_start, slot_30_end, events):
+                available_slots.append(
+                    {
+                        "start": slot_start.isoformat(),
+                        "end": slot_30_end.isoformat(),
+                        "duration": "30 minutes",
+                    }
+                   
+                )
+                break
+            # Check if the 1-hour slot is free and within the day bounds
+            if duration == "60m" and slot_60_end <= day_end and is_slot_free(slot_start, slot_60_end, events):
+                available_slots.append(
+                    {
+                        "start": slot_start.isoformat(),
+                        "end": slot_60_end.isoformat(),
+                        "duration": "1 hour",
+                    }
+                )
+                break
+           
+
+            slot_start += timedelta(minutes=30)  # Move to the next 30-minute interval
+
+        current_day += timedelta(days=1)
+
+    return available_slots
+
 # Helper function to check if a slot is free
 def is_slot_free(slot_start, slot_end, events):
     for event in events:
@@ -104,7 +169,7 @@ def Availabilities():
         start_time = datetime.combine(now, datetime.min.time(), tzinfo=timezone.utc)
         end_time = start_time + timedelta(days=7)  # Timeframe: Next 7 days
         duration = request.args.get('duration', default='30m')
-        data = get_availabilities(duration, start_time, end_time)
+        data = get_availabilities_date(duration, start_time, end_time)
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
