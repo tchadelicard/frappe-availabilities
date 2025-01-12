@@ -112,6 +112,10 @@ def get_slots_for_day():
         except ValueError:
             return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
 
+        # Exclude weekends
+        if start_time.weekday() >= 5:  # Saturday = 5, Sunday = 6
+            return jsonify([])
+
         end_time = start_time + timedelta(days=1)
 
         # Fetch events for all calendars
@@ -147,6 +151,68 @@ def get_slots_for_day():
             slot_start += timedelta(minutes=30)
 
         return jsonify(slots)
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/days", methods=["POST"])
+def get_days_with_slots():
+    try:
+        # Get credentials and duration from request body
+        data = request.json
+        username = data.get("username")
+        password = data.get("password")
+        duration = data.get("duration", "30m")
+        days = []
+
+        if not all([username, password]):
+            return jsonify({"error": "Missing username or password"}), 400
+
+        # Calculate the last day of the current month
+        now = datetime.now(timezone.utc)
+        last_day_of_month = datetime(
+            now.year, now.month, monthrange(now.year, now.month)[1], tzinfo=timezone.utc
+        )
+        current_day = now.date()
+
+        while current_day <= last_day_of_month.date():
+            # Exclude weekends
+            if current_day.weekday() >= 5:  # Saturday = 5, Sunday = 6
+                current_day += timedelta(days=1)
+                continue
+
+            start_time = datetime.combine(
+                current_day, datetime.min.time(), tzinfo=timezone.utc
+            )
+            end_of_day = start_time + timedelta(days=1)
+
+            # Fetch events for all calendars
+            events = fetch_all_events(username, password, start_time, end_of_day)
+
+            # Check if the day has at least one available slot
+            day_start = datetime.combine(
+                current_day, datetime.min.time(), tzinfo=timezone.utc
+            ) + timedelta(hours=9)
+            day_end = datetime.combine(
+                current_day, datetime.min.time(), tzinfo=timezone.utc
+            ) + timedelta(hours=17)
+
+            slot_start = day_start
+            while slot_start + timedelta(minutes=30) <= day_end:
+                slot_end = slot_start + timedelta(
+                    minutes=30 if duration == "30m" else 60
+                )
+
+                if slot_end <= day_end and is_slot_free(slot_start, slot_end, events):
+                    days.append(current_day.isoformat())
+                    break
+
+                slot_start += timedelta(minutes=30)
+
+            current_day += timedelta(days=1)
+
+        return jsonify(days)
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
