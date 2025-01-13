@@ -164,19 +164,41 @@ def get_days_with_slots():
         username = data.get("username")
         password = data.get("password")
         duration = data.get("duration", "30m")
+        start_date_str = data.get("startDate")  # Format: YYYY-MM-DD
+        end_date_str = data.get("endDate")  # Format: YYYY-MM-DD
         days = []
 
-        if not all([username, password]):
-            return jsonify({"error": "Missing username or password"}), 400
+        if not all([username, password, start_date_str, end_date_str]):
+            return (
+                jsonify({"error": "Missing username, password, startDate, or endDate"}),
+                400,
+            )
 
-        # Calculate the last day of the current month
-        now = datetime.now(timezone.utc)
-        last_day_of_month = datetime(
-            now.year, now.month, monthrange(now.year, now.month)[1], tzinfo=timezone.utc
-        )
-        current_day = now.date()
+        try:
+            # Parse startDate and endDate
+            start_date = datetime.strptime(start_date_str, "%Y-%m-%d").date()
+            end_date = datetime.strptime(end_date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
 
-        while current_day <= last_day_of_month.date():
+        # Get today's date
+        today = datetime.now(timezone.utc).date()
+
+        # Validate date ranges
+        if start_date < today:
+            return (
+                jsonify({"error": "startDate must be greater than or equal to today."}),
+                400,
+            )
+        if end_date < start_date + timedelta(days=1):
+            return (
+                jsonify({"error": "endDate must be at least 1 day after startDate."}),
+                400,
+            )
+
+        current_day = start_date
+
+        while current_day <= end_date:
             # Exclude weekends
             if current_day.weekday() >= 5:  # Saturday = 5, Sunday = 6
                 current_day += timedelta(days=1)
