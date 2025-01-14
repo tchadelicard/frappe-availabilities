@@ -201,43 +201,86 @@ def get_days_with_slots():
                 400,
             )
 
-        current_day = start_date
+        # Fetch all events for the date range in one request
+        start_time = datetime.combine(
+            start_date, datetime.min.time(), tzinfo=timezone.utc
+        )
+        end_time = datetime.combine(
+            end_date + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc
+        )
+        events = fetch_all_events(username, password, start_time, end_time)
 
-        while current_day <= end_date:
+        # Group events by day
+        events_by_day = {}
+        for event in events:
+            event_start = getattr(event.vobject_instance.vevent.dtstart, "value", None)
+            event_end = getattr(event.vobject_instance.vevent.dtend, "value", None)
+
+            if isinstance(event_start, datetime):
+                event_start = event_start.date()
+            if isinstance(event_end, datetime):
+                event_end = event_end.date()
+
+            for day in range(
+                (event_start - start_date).days, (event_end - start_date).days + 1
+            ):
+                event_day = start_date + timedelta(days=day)
+                if start_date <= event_day <= end_date:
+                    if event_day not in events_by_day:
+                        events_by_day[event_day] = []
+                    events_by_day[event_day].append(event)
+
+        # Check each day for availability
+        for day in range((end_date - start_date).days + 1):
+            current_day = start_date + timedelta(days=day)
+
             # Exclude weekends
             if current_day.weekday() >= 5:  # Saturday = 5, Sunday = 6
-                current_day += timedelta(days=1)
                 continue
 
-            start_time = datetime.combine(
-                current_day, datetime.min.time(), tzinfo=timezone.utc
-            )
-            end_of_day = start_time + timedelta(days=1)
-
-            # Fetch events for all calendars
-            events = fetch_all_events(username, password, start_time, end_of_day)
-
-            # Check if the day has at least one available slot
-            day_start = datetime.combine(
+            workday_start = datetime.combine(
                 current_day, datetime.min.time(), tzinfo=timezone.utc
             ) + timedelta(hours=9)
-            day_end = datetime.combine(
+            workday_end = datetime.combine(
                 current_day, datetime.min.time(), tzinfo=timezone.utc
             ) + timedelta(hours=17)
 
-            slot_start = day_start
-            while slot_start + timedelta(minutes=30) <= day_end:
-                slot_end = slot_start + timedelta(
-                    minutes=30 if duration == "30m" else 60
-                )
+            # Get events for the current day
+            day_events = events_by_day.get(current_day, [])
+            day_events.sort(
+                key=lambda e: getattr(e.vobject_instance.vevent.dtstart, "value", None)
+            )
 
-                if slot_end <= day_end and is_slot_free(slot_start, slot_end, events):
+            # Calculate free time
+            free_time = []
+            previous_end = workday_start
+            for event in day_events:
+                event_start = getattr(
+                    event.vobject_instance.vevent.dtstart, "value", None
+                )
+                event_end = getattr(event.vobject_instance.vevent.dtend, "value", None)
+
+                # Normalize event times
+                if isinstance(event_start, datetime):
+                    event_start = event_start.astimezone(timezone.utc)
+                if isinstance(event_end, datetime):
+                    event_end = event_end.astimezone(timezone.utc)
+
+                # Check for free time between the previous event's end and this event's start
+                if event_start > previous_end:
+                    free_time.append((previous_end, event_start))
+                previous_end = max(previous_end, event_end)
+
+            # Check for free time after the last event
+            if previous_end < workday_end:
+                free_time.append((previous_end, workday_end))
+
+            # Check if any free slot is large enough for the specified duration
+            required_minutes = 30 if duration == "30m" else 60
+            for start, end in free_time:
+                if (end - start).total_seconds() / 60 >= required_minutes:
                     days.append(current_day.isoformat())
                     break
-
-                slot_start += timedelta(minutes=30)
-
-            current_day += timedelta(days=1)
 
         return jsonify(days)
 
