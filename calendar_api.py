@@ -12,6 +12,7 @@ CALDAV_URL = "https://z.imt.fr/dav/{}/Calendar"  # Replace with your CalDAV serv
 # Helper function to check if a slot is free
 def is_slot_free(slot_start, slot_end, events):
     for event in events:
+        # Extract event start, end, and summary
         event_start = getattr(event.vobject_instance.vevent.dtstart, "value", None)
         event_end = getattr(event.vobject_instance.vevent.dtend, "value", None)
         summary = getattr(event.vobject_instance.vevent.summary, "value", "").lower()
@@ -20,32 +21,36 @@ def is_slot_free(slot_start, slot_end, events):
         if event_start is None or event_end is None:
             continue
 
-        # Convert datetime.datetime to datetime.date for all-day events
+        # Normalize event times
         if isinstance(event_start, datetime):
-            event_start_date = event_start.date()
-        else:
-            event_start_date = event_start
+            event_start = event_start.astimezone(timezone.utc)
+        elif isinstance(event_start, date):
+            # Convert all-day event start to datetime
+            event_start = datetime.combine(
+                event_start, datetime.min.time(), tzinfo=timezone.utc
+            )
+
         if isinstance(event_end, datetime):
-            event_end_date = event_end.date()
-        else:
-            event_end_date = event_end
+            event_end = event_end.astimezone(timezone.utc)
+        elif isinstance(event_end, date):
+            # Convert all-day event end to datetime
+            event_end = datetime.combine(
+                event_end, datetime.min.time(), tzinfo=timezone.utc
+            )
 
-        # Handle all-day events
-        if isinstance(event_start_date, date) and isinstance(event_end_date, date):
-            # Skip "Working from home" events; they shouldn't block slots
-            if "working from home" in summary:
-                continue
-
-            # Block slots for all other all-day events
-            if (
-                slot_start.date() >= event_start_date
-                and slot_start.date() < event_end_date
-            ):
-                return False
+        # Check for all-day events
+        if "working from home" in summary:
+            # Skip "Working from home" events; they don't block slots
+            continue
         elif isinstance(event_start, datetime) and isinstance(event_end, datetime):
-            # Time-based event
+            # Check for overlap between the slot and the event
             if not (slot_end <= event_start or slot_start >= event_end):
+                # print(
+                #    f"Slot blocked by event: {summary}, start={event_start}, end={event_end}"
+                # )
                 return False
+
+    # print(f"Slot is free: start={slot_start}, end={slot_end}")
     return True
 
 
